@@ -1,0 +1,30 @@
+export interface Faculty {
+  faculty_id: number
+  uid?: number | null
+  faculty_clg_id?: string | null
+  name?: string | null
+  contact?: string | null
+  ftype_id?: number | null
+  role?: string | null
+  depart_id?: number | null
+  previlage?: number | null
+  joining_date?: string | null
+  shift_id?: number | null
+  gender?: string | null
+  dob?: string | null
+  branch_id?: number | null
+  qualification?: string | null
+  pan_no?: string | null
+  aadhar_card?: string | null
+  blood_group?: string | null
+  permanent_address?: string | null
+  current_address?: string | null
+  alternate_mobile?: string | null
+  experience_details?: string | null
+  photo?: string | null
+  signature?: string | null
+  cv?: string | null
+  weekly_work_hours?: number | null
+  status?: number | null
+  email?: string | null
+}
