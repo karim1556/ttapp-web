@@ -5,6 +5,7 @@ import { EmptyState } from '../components/EmptyState'
 import { Modal } from '../components/Modal'
 import type { TimeSlotTemplate } from '../types/timeslot'
 import { formatTime } from '../utils/timetable'
+import { branchMap } from '../utils/branch'
 
 export const ManageTimeslotsPage = () => {
   const [timeslots, setTimeslots] = useState<TimeSlotTemplate[]>([])
@@ -13,10 +14,18 @@ export const ManageTimeslotsPage = () => {
   const [editing, setEditing] = useState<TimeSlotTemplate | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<TimeSlotTemplate | null>(null)
 
+  const [branchFilter, setBranchFilter] = useState<number | null>(null)
+  const [semesterFilter, setSemesterFilter] = useState<number | null>(null)
+  const [divisionFilter, setDivisionFilter] = useState<string | null>(null)
+
   const loadTimeslots = () => {
     setLoading(true)
     setError(null)
-    getAll()
+    getAll({
+      branchId: branchFilter,
+      semester: semesterFilter,
+      division: divisionFilter || undefined,
+    })
       .then((data) => setTimeslots(data))
       .catch((err) => {
         const message = err instanceof Error ? err.message : 'Unable to load time slots'
@@ -27,7 +36,7 @@ export const ManageTimeslotsPage = () => {
 
   useEffect(() => {
     loadTimeslots()
-  }, [])
+  }, [branchFilter, semesterFilter, divisionFilter])
 
   const ordered = useMemo(() => {
     return [...timeslots].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
@@ -81,6 +90,9 @@ export const ManageTimeslotsPage = () => {
                 startTimeMinutes: 0,
                 endTimeHr: 9,
                 endTimeMinutes: 0,
+                branch_id: branchFilter,
+                semester: semesterFilter,
+                division: divisionFilter,
               } as TimeSlotTemplate)
             }
             className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white"
@@ -94,6 +106,68 @@ export const ManageTimeslotsPage = () => {
       <div className="rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-ink-muted">
         Slots are used when generating timetables. Slots marked as Break are skipped during
         scheduling.
+      </div>
+
+      {/* Filters Card */}
+      <div className="rounded-3xl border border-border bg-white px-5 py-4 shadow-soft">
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="grid flex-1 min-w-[140px] gap-1 text-xs font-semibold text-ink-muted">
+            Department
+            <select
+              className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none"
+              value={branchFilter ?? ''}
+              onChange={(e) => setBranchFilter(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">Global / All</option>
+              {Object.entries(branchMap).map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid flex-1 min-w-[140px] gap-1 text-xs font-semibold text-ink-muted">
+            Semester
+            <select
+              className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none"
+              value={semesterFilter ?? ''}
+              onChange={(e) => setSemesterFilter(e.target.value ? Number(e.target.value) : null)}
+            >
+              <option value="">All Semesters</option>
+              {Array.from({ length: 8 }, (_, i) => i + 1).map((sem) => (
+                <option key={sem} value={sem}>
+                  Sem {sem}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid flex-1 min-w-[140px] gap-1 text-xs font-semibold text-ink-muted">
+            Division
+            <select
+              className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none"
+              value={divisionFilter ?? ''}
+              onChange={(e) => setDivisionFilter(e.target.value || null)}
+            >
+              <option value="">All Divisions</option>
+              {['A', 'B', 'C'].map((div) => (
+                <option key={div} value={div}>
+                  Div {div}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => {
+              setBranchFilter(null)
+              setSemesterFilter(null)
+              setDivisionFilter(null)
+            }}
+            className="mt-auto h-9 rounded-xl border border-border px-4 text-xs font-semibold text-ink-muted"
+          >
+            Reset Filters
+          </button>
+        </div>
       </div>
 
       {error ? (
@@ -117,19 +191,51 @@ export const ManageTimeslotsPage = () => {
             return (
               <div
                 key={slot.id}
-                className={`flex items-center justify-between rounded-2xl border border-border px-4 py-3 ${
+                className={`flex flex-col md:flex-row md:items-center justify-between rounded-2xl border border-border px-4 py-3 gap-3 ${
                   isBreak ? 'bg-warning/10' : 'bg-white'
                 }`}
               >
                 <div>
-                  <div className="text-sm font-semibold text-ink">
-                    {slot.label || 'Slot'}
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-semibold text-ink">
+                      {slot.label || 'Slot'}
+                    </span>
+                    {isBreak ? (
+                      <span className="rounded bg-warning/20 px-2 py-0.5 text-[10px] font-semibold text-warning-dark">
+                        Break
+                      </span>
+                    ) : null}
+                    {slot.is_active === 0 ? (
+                      <span className="rounded bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-400">
+                        Inactive
+                      </span>
+                    ) : null}
                   </div>
-                  <div className="text-xs text-ink-muted">
+                  <div className="text-xs text-ink-muted mt-0.5">
                     {formatTime(slot.startTimeHr, slot.startTimeMinutes)} -{' '}
                     {formatTime(slot.endTimeHr, slot.endTimeMinutes)}
-                    {isBreak ? ' · Break' : ''}
-                    {slot.is_active === 0 ? ' · Inactive' : ''}
+                  </div>
+                  <div className="mt-2 flex flex-wrap gap-1">
+                    {slot.branch_id ? (
+                      <span className="rounded bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+                        {branchMap[slot.branch_id] || `Branch ${slot.branch_id}`}
+                      </span>
+                    ) : null}
+                    {slot.semester ? (
+                      <span className="rounded bg-purple-50 px-2 py-0.5 text-[10px] font-semibold text-purple-600">
+                        Sem {slot.semester}
+                      </span>
+                    ) : null}
+                    {slot.division ? (
+                      <span className="rounded bg-teal-50 px-2 py-0.5 text-[10px] font-semibold text-teal-600">
+                        Div {slot.division}
+                      </span>
+                    ) : null}
+                    {!slot.branch_id && !slot.semester && !slot.division ? (
+                      <span className="rounded bg-gray-50 px-2 py-0.5 text-[10px] font-semibold text-gray-500">
+                        Global / All Dept
+                      </span>
+                    ) : null}
                   </div>
                 </div>
                 <div className="flex items-center gap-2">
@@ -149,7 +255,7 @@ export const ManageTimeslotsPage = () => {
                   </button>
                   <button
                     type="button"
-                    className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-ink"
+                    className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-ink bg-white"
                     onClick={() => setEditing(slot)}
                   >
                     Edit
@@ -230,6 +336,10 @@ const TimeSlotFormModal = ({
   const [sortOrder, setSortOrder] = useState(slot?.sort_order?.toString() ?? '')
   const [isActive, setIsActive] = useState(slot?.is_active ?? 1)
 
+  const [branchId, setBranchId] = useState<number | ''>(slot?.branch_id ?? '')
+  const [semester, setSemester] = useState<number | ''>(slot?.semester ?? '')
+  const [division, setDivision] = useState(slot?.division ?? '')
+
   useEffect(() => {
     if (!slot) return
     setLabel(slot.label ?? '')
@@ -240,12 +350,15 @@ const TimeSlotFormModal = ({
     setIsBreak(slot.is_break === 1)
     setSortOrder(slot.sort_order?.toString() ?? '')
     setIsActive(slot.is_active ?? 1)
+    setBranchId(slot.branch_id ?? '')
+    setSemester(slot.semester ?? '')
+    setDivision(slot.division ?? '')
   }, [slot])
 
   if (!slot) return null
 
   const hours = Array.from({ length: 24 }, (_, i) => i)
-  const minutes = [0, 15, 30, 45]
+  const minutes = Array.from({ length: 60 }, (_, i) => i)
 
   const handleSubmit = () => {
     onSave({
@@ -257,6 +370,9 @@ const TimeSlotFormModal = ({
       is_break: isBreak ? 1 : 0,
       sort_order: sortOrder.trim() ? Number(sortOrder) : undefined,
       is_active: isActive,
+      branch_id: branchId ? Number(branchId) : null,
+      semester: semester ? Number(semester) : null,
+      division: division || null,
     })
   }
 
@@ -285,12 +401,59 @@ const TimeSlotFormModal = ({
       }
     >
       <div className="grid gap-3">
+        <label className="grid gap-1 text-sm text-ink">
+          Department / Branch
+          <select
+            className="rounded-xl border border-border px-3 py-2 bg-white"
+            value={branchId}
+            onChange={(e) => setBranchId(e.target.value ? Number(e.target.value) : '')}
+          >
+            <option value="">Global / All (Default)</option>
+            {Object.entries(branchMap).map(([id, label]) => (
+              <option key={id} value={id}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="grid gap-1 text-sm text-ink">
+            Semester
+            <select
+              className="rounded-xl border border-border px-3 py-2 bg-white"
+              value={semester}
+              onChange={(e) => setSemester(e.target.value ? Number(e.target.value) : '')}
+            >
+              <option value="">Global / All</option>
+              {Array.from({ length: 8 }, (_, i) => i + 1).map((sem) => (
+                <option key={sem} value={sem}>
+                  Sem {sem}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="grid gap-1 text-sm text-ink">
+            Division
+            <select
+              className="rounded-xl border border-border px-3 py-2 bg-white"
+              value={division}
+              onChange={(e) => setDivision(e.target.value)}
+            >
+              <option value="">Global / All</option>
+              {['A', 'B', 'C'].map((div) => (
+                <option key={div} value={div}>
+                  Div {div}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
         <Field label="Label" value={label} onChange={setLabel} />
         <div className="grid gap-2">
           <div className="text-sm font-semibold text-ink">Start Time</div>
           <div className="grid grid-cols-2 gap-3">
             <select
-              className="rounded-xl border border-border px-3 py-2"
+              className="rounded-xl border border-border px-3 py-2 bg-white"
               value={startHr}
               onChange={(event) => setStartHr(Number(event.target.value))}
             >
@@ -301,7 +464,7 @@ const TimeSlotFormModal = ({
               ))}
             </select>
             <select
-              className="rounded-xl border border-border px-3 py-2"
+              className="rounded-xl border border-border px-3 py-2 bg-white"
               value={startMin}
               onChange={(event) => setStartMin(Number(event.target.value))}
             >
@@ -317,7 +480,7 @@ const TimeSlotFormModal = ({
           <div className="text-sm font-semibold text-ink">End Time</div>
           <div className="grid grid-cols-2 gap-3">
             <select
-              className="rounded-xl border border-border px-3 py-2"
+              className="rounded-xl border border-border px-3 py-2 bg-white"
               value={endHr}
               onChange={(event) => setEndHr(Number(event.target.value))}
             >
@@ -328,7 +491,7 @@ const TimeSlotFormModal = ({
               ))}
             </select>
             <select
-              className="rounded-xl border border-border px-3 py-2"
+              className="rounded-xl border border-border px-3 py-2 bg-white"
               value={endMin}
               onChange={(event) => setEndMin(Number(event.target.value))}
             >
@@ -340,7 +503,7 @@ const TimeSlotFormModal = ({
             </select>
           </div>
         </div>
-        <label className="inline-flex items-center gap-2 text-sm text-ink">
+        <label className="inline-flex items-center gap-2 text-sm text-ink mt-2">
           <input type="checkbox" checked={isBreak} onChange={(event) => setIsBreak(event.target.checked)} />
           Break Slot
         </label>
@@ -348,7 +511,7 @@ const TimeSlotFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Status
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white"
             value={isActive}
             onChange={(event) => setIsActive(Number(event.target.value))}
           >
@@ -375,7 +538,7 @@ const Field = ({
   <label className="grid gap-1 text-sm text-ink">
     {label}
     <input
-      className="rounded-xl border border-border px-3 py-2"
+      className="rounded-xl border border-border px-3 py-2 outline-none"
       type={type}
       value={value}
       onChange={(event) => onChange(event.target.value)}

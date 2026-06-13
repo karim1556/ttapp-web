@@ -24,6 +24,7 @@ import { ManageSubjectsPage } from '../pages/ManageSubjectsPage'
 import { ManageRoomsPage } from '../pages/ManageRoomsPage'
 import { ManageTimeslotsPage } from '../pages/ManageTimeslotsPage'
 import { RoomReportsPage } from '../pages/RoomReportsPage'
+import { ManageTemporaryTimetablePage } from '../pages/ManageTemporaryTimetablePage'
 import { NotFoundPage } from '../pages/NotFoundPage'
 
 export const AppRouter = () => (
@@ -57,6 +58,7 @@ export const AppRouter = () => (
           <Route path="admin/subjects" element={<ManageSubjectsPage />} />
           <Route path="admin/rooms" element={<ManageRoomsPage />} />
           <Route path="admin/timeslots" element={<ManageTimeslotsPage />} />
+          <Route path="admin/temporary" element={<ManageTemporaryTimetablePage />} />
           <Route path="admin/rooms/reports" element={<RoomReportsPage />} />
         </Route>
       </Route>

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Plus, RefreshCcw, Search, Trash2 } from 'lucide-react'
 import { createFaculty, getAll, removeFaculty, updateFaculty } from '../api/faculty'
+import { getAll as getSubjects } from '../api/subjects'
 import { EmptyState } from '../components/EmptyState'
 import { Modal } from '../components/Modal'
 import type { Faculty } from '../types/faculty'
+import type { Subject } from '../types/subject'
 import { branchMap } from '../utils/branch'
 
 const departments = {
@@ -16,38 +18,57 @@ const departments = {
 
 export const ManageTeachersPage = () => {
   const [faculty, setFaculty] = useState<Faculty[]>([])
+  const [subjects, setSubjects] = useState<Subject[]>([])
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Faculty | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<Faculty | null>(null)
 
-  const loadFaculty = () => {
+  const [branchFilter, setBranchFilter] = useState<number | null>(null)
+  const [semesterFilter, setSemesterFilter] = useState<number | null>(null)
+
+  const loadData = () => {
     setLoading(true)
     setError(null)
-    getAll()
-      .then((data) => setFaculty(data))
+    Promise.all([getAll(), getSubjects()])
+      .then(([facultyData, subjectData]) => {
+        setFaculty(facultyData)
+        setSubjects(subjectData)
+      })
       .catch((err) => {
-        const message = err instanceof Error ? err.message : 'Unable to load faculty'
+        const message = err instanceof Error ? err.message : 'Unable to load teachers'
         setError(message)
       })
       .finally(() => setLoading(false))
   }
 
   useEffect(() => {
-    loadFaculty()
+    loadData()
   }, [])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     return faculty.filter((member) => {
-      if (!q) return true
-      return (
+      const matchesQuery =
+        !q ||
         member.name?.toLowerCase().includes(q) ||
         member.email?.toLowerCase().includes(q)
-      )
+
+      const matchesBranch = branchFilter === null || member.branch_id === branchFilter
+
+      let matchesSemester = true
+      if (semesterFilter !== null) {
+        const teacherSubjects = subjects.filter((s) => {
+          const profId = Number(s.professorAssign ?? s.professor_assign ?? 0)
+          return profId === member.faculty_id && s.semester === semesterFilter
+        })
+        matchesSemester = teacherSubjects.length > 0
+      }
+
+      return matchesQuery && matchesBranch && matchesSemester
     })
-  }, [faculty, search])
+  }, [faculty, subjects, search, branchFilter, semesterFilter])
 
   const handleSave = async (payload: Partial<Faculty>, existing?: Faculty | null) => {
     if (existing) {
@@ -55,12 +76,12 @@ export const ManageTeachersPage = () => {
     } else {
       await createFaculty(payload)
     }
-    loadFaculty()
+    loadData()
   }
 
   const handleDelete = async (member: Faculty) => {
     await removeFaculty(member.faculty_id)
-    loadFaculty()
+    loadData()
   }
 
   return (
@@ -73,7 +94,7 @@ export const ManageTeachersPage = () => {
         <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={loadFaculty}
+            onClick={loadData}
             className="rounded-xl border border-border bg-white px-3 py-2 text-ink-muted"
           >
             <RefreshCcw className="h-4 w-4" />
@@ -93,17 +114,62 @@ export const ManageTeachersPage = () => {
         </div>
       </div>
 
+      {/* Search & Filters Card */}
       <div className="rounded-3xl border border-border bg-white px-5 py-4 shadow-soft">
-        <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-light text-brand">
-            <Search className="h-4 w-4" />
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-light text-brand">
+              <Search className="h-4 w-4" />
+            </div>
+            <input
+              className="flex-1 border-0 bg-transparent text-sm text-ink outline-none"
+              placeholder="Search by name or email..."
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
           </div>
-          <input
-            className="flex-1 border-0 bg-transparent text-sm text-ink outline-none"
-            placeholder="Search by name or email..."
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-          />
+          <div className="flex flex-wrap items-center gap-3 mt-2 border-t border-border pt-3">
+            <label className="grid flex-1 min-w-[140px] gap-1 text-xs font-semibold text-ink-muted">
+              Department / Branch
+              <select
+                className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none"
+                value={branchFilter ?? ''}
+                onChange={(e) => setBranchFilter(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">All Departments</option>
+                {Object.entries(branchMap).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid flex-1 min-w-[140px] gap-1 text-xs font-semibold text-ink-muted">
+              Semester
+              <select
+                className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none"
+                value={semesterFilter ?? ''}
+                onChange={(e) => setSemesterFilter(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">All Semesters</option>
+                {Array.from({ length: 8 }, (_, i) => i + 1).map((sem) => (
+                  <option key={sem} value={sem}>
+                    Sem {sem}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setBranchFilter(null)
+                setSemesterFilter(null)
+              }}
+              className="mt-auto h-9 rounded-xl border border-border px-4 text-xs font-semibold text-ink-muted"
+            >
+              Reset Filters
+            </button>
+          </div>
         </div>
       </div>
 
@@ -149,7 +215,7 @@ export const ManageTeachersPage = () => {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-ink"
+                    className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-ink bg-white"
                     onClick={() => setEditing(member)}
                   >
                     Edit
@@ -354,7 +420,7 @@ const TeacherFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Branch
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={branchId}
             onChange={(event) => setBranchId(Number(event.target.value))}
           >
@@ -368,7 +434,7 @@ const TeacherFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Department
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={departId}
             onChange={(event) =>
               setDepartId(event.target.value ? Number(event.target.value) : '')
@@ -395,7 +461,7 @@ const TeacherFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Gender
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={gender}
             onChange={(event) => setGender(event.target.value)}
           >
@@ -447,7 +513,7 @@ const TeacherFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Status
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={status}
             onChange={(event) => setStatus(Number(event.target.value))}
           >
@@ -483,14 +549,14 @@ const Field = ({
     {label}
     {multiline ? (
       <textarea
-        className="rounded-xl border border-border px-3 py-2"
+        className="rounded-xl border border-border px-3 py-2 outline-none"
         rows={2}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
     ) : (
       <input
-        className="rounded-xl border border-border px-3 py-2"
+        className="rounded-xl border border-border px-3 py-2 outline-none"
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}

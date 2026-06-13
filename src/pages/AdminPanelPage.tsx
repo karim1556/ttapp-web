@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   BookOpen,
   CalendarCheck,
+  CalendarRange,
   ChevronRight,
   ClipboardList,
   FileText,
@@ -10,8 +11,12 @@ import {
   RefreshCcw,
   Shield,
   Users,
+  Sparkles,
+  Settings,
+  Zap,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
+import { Modal } from '../components/Modal'
 import { getStats } from '../api/admin'
 import { getAll as getFaculty } from '../api/faculty'
 import { getAll as getSubjects } from '../api/subjects'
@@ -40,17 +45,37 @@ export const AdminPanelPage = () => {
   const [isGenerating, setGenerating] = useState(false)
   const [generateMessage, setGenerateMessage] = useState<string | null>(null)
 
+  // Shared configuration parameters
+  // Configuration parameters
   const [academicYear, setAcademicYear] = useState(currentAcademicYear())
   const [branchId, setBranchId] = useState(1)
+
+  // Scope specific configuration parameters
   const [termType, setTermType] = useState<'Odd' | 'Even'>('Odd')
   const [singleSemester, setSingleSemester] = useState(1)
   const [division, setDivision] = useState('A')
-  const [force, setForce] = useState(false)
 
-  const loadAll = () => {
+  // Tab and Modal states
+  const [activeTab, setActiveTab] = useState<'single' | 'full'>('single')
+  const [issuesModal, setIssuesModal] = useState<string[] | null>(null)
+  const [confirmOverwriteModal, setConfirmOverwriteModal] = useState<string[] | null>(null)
+
+  const resetValidation = () => {
+    setGenerateMessage(null)
+  }
+
+  const loadAll = (currentBranchId?: number) => {
+    const targetBranchId = typeof currentBranchId === 'number' ? currentBranchId : branchId
     setLoading(true)
     setError(null)
-    Promise.all([getStats(), getFaculty(), getSubjects(), getTimeslots(), getWeekly()])
+    Promise.all([
+      getStats(),
+      getFaculty(),
+      getSubjects(),
+      getTimeslots({ branchId: targetBranchId }),
+      getWeekly(),
+
+    ])
       .then(([statsData, facultyData, subjectData, timeslotData, weeklyData]) => {
         setStats(statsData)
         setFacultyCount(facultyData.length)
@@ -68,8 +93,8 @@ export const AdminPanelPage = () => {
   }
 
   useEffect(() => {
-    loadAll()
-  }, [])
+    loadAll(branchId)
+  }, [branchId])
 
   const workload = useMemo(() => {
     const counts = new Map<string, number>()
@@ -84,16 +109,42 @@ export const AdminPanelPage = () => {
     return [...counts.entries()].sort((a, b) => b[1] - a[1])
   }, [weekly])
 
-  const handleGenerateAll = async () => {
+  const handleGenerateAll = async (forceParam = false) => {
     setGenerating(true)
     setGenerateMessage(null)
     try {
+      if (!forceParam) {
+        const res = await generateAll({
+          academicYear,
+          branchIds: [branchId],
+          divisions: ['A', 'B'],
+          termType,
+          force: false,
+          dryRun: true,
+        })
+        const issues = (res as any).issues || []
+        const existingClasses = (res as any).existingClasses || []
+
+        if (issues.length > 0) {
+          setIssuesModal(issues)
+          setGenerating(false)
+          return
+        }
+
+        if (existingClasses.length > 0) {
+          setConfirmOverwriteModal(existingClasses)
+          setGenerating(false)
+          return
+        }
+      }
+
       const res = await generateAll({
         academicYear,
         branchIds: [branchId],
         divisions: ['A', 'B'],
         termType,
-        force,
+        force: forceParam,
+        dryRun: false,
       })
       setGenerateMessage(res.message ?? 'Generation completed.')
       loadAll()
@@ -105,16 +156,42 @@ export const AdminPanelPage = () => {
     }
   }
 
-  const handleGenerateSingle = async () => {
+  const handleGenerateSingle = async (forceParam = false) => {
     setGenerating(true)
     setGenerateMessage(null)
     try {
+      if (!forceParam) {
+        const res = await generate({
+          academicYear,
+          branchId,
+          sem: String(singleSemester),
+          division,
+          force: false,
+          dryRun: true,
+        })
+        const issues = (res as any).issues || []
+        const existingClasses = (res as any).existingClasses || []
+
+        if (issues.length > 0) {
+          setIssuesModal(issues)
+          setGenerating(false)
+          return
+        }
+
+        if (existingClasses.length > 0) {
+          setConfirmOverwriteModal(existingClasses)
+          setGenerating(false)
+          return
+        }
+      }
+
       const res = await generate({
         academicYear,
         branchId,
         sem: String(singleSemester),
         division,
-        force,
+        force: forceParam,
+        dryRun: false,
       })
       setGenerateMessage(res.message ?? 'Generation completed.')
       loadAll()
@@ -144,14 +221,14 @@ export const AdminPanelPage = () => {
           </div>
           <button
             type="button"
-            onClick={loadAll}
-            className="rounded-xl border border-border bg-white px-3 py-2 text-ink-muted"
+            onClick={() => loadAll(branchId)}
+            className="rounded-xl border border-border bg-white px-3 py-2 text-ink-muted transition hover:bg-gray-50 active:scale-95 outline-none"
           >
             <RefreshCcw className="h-4 w-4" />
           </button>
         </div>
 
-        <div className="rounded-3xl bg-gradient-to-br from-[#5E87F7] to-[#79A1FF] px-5 py-4 text-white">
+        <div className="rounded-3xl bg-gradient-to-br from-[#5E87F7] to-[#79A1FF] px-5 py-4 text-white shadow-soft">
           <div className="flex items-center gap-4">
             <div className="rounded-2xl bg-white/20 p-3">
               <Shield className="h-6 w-6 text-white" />
@@ -196,21 +273,67 @@ export const AdminPanelPage = () => {
           />
         </div>
 
+        {/* Improved generation UI */}
         <div className="grid gap-6">
           <SectionTitle
-            title="Timetable Generation"
-            subtitle="Generate even/odd term schedules for A and B divisions"
+            title="Timetable Generation Control"
+            subtitle="Configure terms and trigger the scheduling algorithm for your department"
           />
-          <div className="rounded-3xl border border-border bg-white px-5 py-4 shadow-soft">
-            <div className="grid gap-4 lg:grid-cols-2">
-              <div className="grid gap-3">
-                <div className="text-sm font-semibold text-ink">Generate all (Odd/Even)</div>
-                <label className="grid gap-1 text-xs text-ink-muted">
+
+          <div className="rounded-3xl border border-border bg-white p-5 shadow-soft grid gap-5">
+            {/* Mode Switcher */}
+            <div className="flex p-1 bg-[#F8FAFC] border border-border rounded-2xl max-w-md">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('single')
+                  resetValidation()
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-xl transition-all outline-none ${
+                  activeTab === 'single'
+                    ? 'bg-brand text-white shadow-soft font-bold'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                <Zap className="h-3.5 w-3.5" />
+                Single Class
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveTab('full')
+                  resetValidation()
+                }}
+                className={`flex-1 flex items-center justify-center gap-2 py-2 text-xs font-semibold rounded-xl transition-all outline-none ${
+                  activeTab === 'full'
+                    ? 'bg-brand text-white shadow-soft font-bold'
+                    : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                Full Department
+              </button>
+            </div>
+
+            {/* Target Parameters based on Active Mode */}
+            <div className="bg-[#F8FAFC] rounded-2xl p-5 border border-border grid gap-4">
+              <div className="flex items-center gap-2 mb-1">
+                <Settings className="h-4 w-4 text-brand" />
+                <span className="text-sm font-bold text-ink uppercase tracking-wider">
+                  {activeTab === 'single' ? 'Single Class Configuration' : 'Full Department Configuration'}
+                </span>
+              </div>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 items-end">
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-muted">
                   Academic Year
                   <select
-                    className="rounded-xl border border-border px-3 py-2 text-sm text-ink"
+                    className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none mt-1 hover:border-brand/40 transition focus:border-brand"
                     value={academicYear}
-                    onChange={(event) => setAcademicYear(event.target.value)}
+                    onChange={(event) => {
+                      setAcademicYear(event.target.value)
+                      resetValidation()
+                    }}
                   >
                     {academicYearOptions().map((year) => (
                       <option key={year} value={year}>
@@ -219,12 +342,16 @@ export const AdminPanelPage = () => {
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-xs text-ink-muted">
-                  Branch
+
+                <label className="grid gap-1.5 text-xs font-semibold text-ink-muted">
+                  Department / Branch
                   <select
-                    className="rounded-xl border border-border px-3 py-2 text-sm text-ink"
+                    className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none mt-1 hover:border-brand/40 transition focus:border-brand"
                     value={branchId}
-                    onChange={(event) => setBranchId(Number(event.target.value))}
+                    onChange={(event) => {
+                      setBranchId(Number(event.target.value))
+                      resetValidation()
+                    }}
                   >
                     {Object.entries(branchMap).map(([id, label]) => (
                       <option key={id} value={id}>
@@ -233,77 +360,92 @@ export const AdminPanelPage = () => {
                     ))}
                   </select>
                 </label>
-                <label className="grid gap-1 text-xs text-ink-muted">
-                  Term Type
-                  <select
-                    className="rounded-xl border border-border px-3 py-2 text-sm text-ink"
-                    value={termType}
-                    onChange={(event) =>
-                      setTermType(event.target.value === 'Even' ? 'Even' : 'Odd')
-                    }
-                  >
-                    <option value="Odd">Odd Term</option>
-                    <option value="Even">Even Term</option>
-                  </select>
-                </label>
-                <label className="inline-flex items-center gap-2 text-xs text-ink-muted">
-                  <input
-                    type="checkbox"
-                    checked={force}
-                    onChange={(event) => setForce(event.target.checked)}
-                  />
-                  Force regenerate (overwrite existing)
-                </label>
-                <button
-                  type="button"
-                  onClick={handleGenerateAll}
-                  className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white"
-                >
-                  Generate All
-                </button>
-              </div>
-              <div className="grid gap-3">
-                <div className="text-sm font-semibold text-ink">Generate single class</div>
-                <label className="grid gap-1 text-xs text-ink-muted">
-                  Semester
-                  <select
-                    className="rounded-xl border border-border px-3 py-2 text-sm text-ink"
-                    value={singleSemester}
-                    onChange={(event) => setSingleSemester(Number(event.target.value))}
-                  >
-                    {Array.from({ length: 8 }, (_, index) => index + 1).map((sem) => (
-                      <option key={sem} value={sem}>
-                        Sem {sem}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className="grid gap-1 text-xs text-ink-muted">
-                  Division
-                  <select
-                    className="rounded-xl border border-border px-3 py-2 text-sm text-ink"
-                    value={division}
-                    onChange={(event) => setDivision(event.target.value)}
-                  >
-                    {['A', 'B'].map((div) => (
-                      <option key={div} value={div}>
-                        Div {div}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <button
-                  type="button"
-                  onClick={handleGenerateSingle}
-                  className="rounded-xl border border-brand bg-brand/10 px-4 py-2 text-sm font-semibold text-brand"
-                >
-                  Generate Single
-                </button>
+
+                {activeTab === 'single' ? (
+                  <>
+                    <label className="grid gap-1.5 text-xs font-semibold text-ink-muted">
+                      Semester
+                      <select
+                        className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none mt-1 hover:border-brand/40 transition focus:border-brand"
+                        value={singleSemester}
+                        onChange={(event) => {
+                          setSingleSemester(Number(event.target.value))
+                          resetValidation()
+                        }}
+                      >
+                        {Array.from({ length: 8 }, (_, index) => index + 1).map((sem) => (
+                          <option key={sem} value={sem}>
+                            Sem {sem}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="grid gap-1.5 text-xs font-semibold text-ink-muted">
+                      Division
+                      <select
+                        className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none mt-1 hover:border-brand/40 transition focus:border-brand"
+                        value={division}
+                        onChange={(event) => {
+                          setDivision(event.target.value)
+                          resetValidation()
+                        }}
+                      >
+                        {['A', 'B'].map((div) => (
+                          <option key={div} value={div}>
+                            Div {div}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </>
+                ) : (
+                  <>
+                    <label className="grid gap-1.5 text-xs font-semibold text-ink-muted lg:col-span-2">
+                      Term Type
+                      <select
+                        className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none mt-1 hover:border-brand/40 transition focus:border-brand"
+                        value={termType}
+                        onChange={(event) => {
+                          setTermType(event.target.value as 'Odd' | 'Even')
+                          resetValidation()
+                        }}
+                      >
+                        <option value="Odd">Odd Semester (1, 3, 5, 7)</option>
+                        <option value="Even">Even Semester (2, 4, 6, 8)</option>
+                      </select>
+                    </label>
+                  </>
+                )}
               </div>
             </div>
+
+            {/* Action Button */}
+            <div className="flex">
+              <button
+                type="button"
+                onClick={() => (activeTab === 'single' ? handleGenerateSingle(false) : handleGenerateAll(false))}
+                disabled={isGenerating}
+                className="w-full rounded-xl bg-brand py-2.5 text-sm font-semibold text-white hover:bg-brand-dark active:scale-98 transition outline-none disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {activeTab === 'single' ? (
+                  <>
+                    <Zap className="h-4 w-4" />
+                    Generate Single Class Timetable
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-4 w-4" />
+                    Generate Full Department Timetable
+                  </>
+                )}
+              </button>
+            </div>
+
             {generateMessage ? (
-              <div className="mt-4 rounded-2xl border border-border bg-surface px-4 py-3 text-sm text-ink">
-                {generateMessage}
+              <div className="rounded-2xl border border-border bg-[#F8FAFC] px-4 py-3 text-sm text-ink font-semibold flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-brand animate-pulse" />
+                <span>{generateMessage}</span>
               </div>
             ) : null}
           </div>
@@ -312,7 +454,7 @@ export const AdminPanelPage = () => {
         <div className="grid gap-3">
           <SectionTitle
             title="Management"
-            subtitle="Configure faculty, subjects, rooms and reports"
+            subtitle="Configure faculty, subjects, rooms, reports and temporary event calendars"
           />
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <AdminTile
@@ -338,6 +480,12 @@ export const AdminPanelPage = () => {
               subtitle="Day-only replacements"
               icon={<CalendarCheck className="h-5 w-5" />}
               to="/substitutions"
+            />
+            <AdminTile
+              title="Temporary Timetable"
+              subtitle="Events & guest lectures"
+              icon={<CalendarRange className="h-5 w-5" />}
+              to="/admin/temporary"
             />
             <AdminTile
               title="COPO"
@@ -384,6 +532,85 @@ export const AdminPanelPage = () => {
           </div>
         ) : null}
       </div>
+
+      {/* Configure Before Generating Modal (Blocker Issues) */}
+      <Modal
+        isOpen={Boolean(issuesModal)}
+        title="Configure Before Generating"
+        onClose={() => setIssuesModal(null)}
+        footer={
+          <button
+            type="button"
+            className="rounded-xl border border-border px-4 py-2 text-sm bg-white hover:bg-gray-50 transition outline-none"
+            onClick={() => setIssuesModal(null)}
+          >
+            Close
+          </button>
+        }
+      >
+        <div className="grid gap-3">
+          <p className="text-sm text-ink font-semibold">Please complete the following setup first:</p>
+          <ul className="list-disc list-inside text-xs text-error space-y-2 bg-error/10 p-4 rounded-2xl border border-error/25">
+            {issuesModal?.map((issue, idx) => (
+              <li key={idx} className="leading-relaxed">{issue}</li>
+            ))}
+          </ul>
+        </div>
+      </Modal>
+
+      {/* Existing Timetable Found Modal (Overwrite Confirmation) */}
+      <Modal
+        isOpen={Boolean(confirmOverwriteModal)}
+        title="Existing Timetable Found"
+        onClose={() => setConfirmOverwriteModal(null)}
+        footer={
+          <div className="flex gap-2 justify-end w-full">
+            <button
+              type="button"
+              className="rounded-xl border border-border px-4 py-2 text-sm bg-white hover:bg-gray-50 transition outline-none"
+              onClick={() => setConfirmOverwriteModal(null)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded-xl bg-error px-4 py-2 text-sm font-semibold text-white hover:bg-error-dark transition outline-none"
+              onClick={() => {
+                const existing = confirmOverwriteModal
+                setConfirmOverwriteModal(null)
+                if (existing) {
+                  if (activeTab === 'single') {
+                    handleGenerateSingle(true)
+                  } else {
+                    handleGenerateAll(true)
+                  }
+                }
+              }}
+            >
+              Delete & Regenerate
+            </button>
+          </div>
+        }
+      >
+        <div className="grid gap-3">
+          <p className="text-sm text-ink leading-relaxed">
+            Timetable already exists for the selected class(es). Regenerating will delete and replace previous assignments:
+          </p>
+          <div className="flex flex-wrap gap-1.5 p-3 bg-amber-50 rounded-2xl border border-amber-200">
+            {confirmOverwriteModal?.map((entry, idx) => (
+              <span
+                key={idx}
+                className="bg-amber-100 px-2 py-0.5 rounded text-[11px] font-semibold text-amber-800 border border-amber-200"
+              >
+                {entry}
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-ink-muted leading-relaxed font-semibold">
+            Are you sure you want to proceed? This cannot be undone.
+          </p>
+        </div>
+      </Modal>
     </LoadingOverlay>
   )
 }
@@ -401,15 +628,15 @@ const AdminTile = ({
 }) => (
   <Link
     to={to}
-    className="flex items-center gap-3 rounded-2xl border border-border bg-white px-4 py-3 transition hover:shadow"
+    className="flex items-center gap-3 rounded-2xl border border-border bg-white px-4 py-3 transition hover:shadow-md hover:border-brand/30 group outline-none"
   >
-    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-light text-brand">
+    <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-light text-brand group-hover:bg-brand/10 transition">
       {icon}
     </span>
     <span className="flex-1">
-      <span className="block text-sm font-semibold text-ink">{title}</span>
+      <span className="block text-sm font-semibold text-ink group-hover:text-brand transition">{title}</span>
       <span className="block text-xs text-ink-muted">{subtitle}</span>
     </span>
-    <ChevronRight className="h-4 w-4 text-ink-muted" />
+    <ChevronRight className="h-4 w-4 text-ink-muted group-hover:translate-x-0.5 transition-transform" />
   </Link>
 )

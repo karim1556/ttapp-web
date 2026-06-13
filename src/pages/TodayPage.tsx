@@ -1,13 +1,15 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bell, CalendarDays, RefreshCcw, Sun, Wind } from 'lucide-react'
+import { Bell, CalendarDays, RefreshCcw, Sun, Wind, Shield } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { getUpcoming } from '../api/holidays'
 import { getAll as getSubstitutions } from '../api/substitutions'
-import { getToday } from '../api/timetable'
+import { getToday, getFacultyTimetable } from '../api/timetable'
 import { EmptyState } from '../components/EmptyState'
 import { LectureDetailModal } from '../components/LectureDetailModal'
 import { LoadingScreen } from '../components/LoadingScreen'
 import { TimetableSlotCard } from '../components/TimetableSlotCard'
+import { useAuth } from '../auth/AuthProvider'
+import { UserRole } from '../types/auth'
 import type { Holiday } from '../types/holiday'
 import type { TimetableSlot } from '../types/timetable'
 import { formatDateLong, formatDayName } from '../utils/date'
@@ -16,9 +18,13 @@ import { collapseConsecutiveLabSlots } from '../utils/timetable'
 
 export const TodayPage = () => {
   const navigate = useNavigate()
+  const { user } = useAuth()
+  const isAdmin = user?.user_type === UserRole.Admin
+  const isFaculty = user?.user_type === UserRole.Faculty
+
   const [slots, setSlots] = useState<TimetableSlot[]>([])
   const [holiday, setHoliday] = useState<Holiday | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!isAdmin)
   const [error, setError] = useState<string | null>(null)
   const [selectedSlot, setSelectedSlot] = useState<TimetableSlot | null>(null)
 
@@ -29,34 +35,67 @@ export const TodayPage = () => {
   const lectureCount = slots.filter((slot) => slot.lectures.length > 0).length
 
   const loadSchedule = () => {
+    if (isAdmin) {
+      setLoading(false)
+      return
+    }
+
     setLoading(true)
     setError(null)
     const dateKey = today.toISOString().slice(0, 10)
 
-    Promise.all([
-      getToday(),
-      getSubstitutions({ date: dateKey, status: 'approved' }),
-      getUpcoming(),
-    ])
-      .then(([days, substitutions, holidays]) => {
-        const todayDay = days[0]
-        const filledSlots = todayDay?.slots ?? []
-        const withSubs = applyApprovedSubstitutions(
-          filledSlots,
-          substitutions,
-          today,
-        )
-        setSlots(collapseConsecutiveLabSlots(withSubs))
-        const todayHoliday = holidays.find(
-          (item) => item.isToday || item.date === dateKey,
-        )
-        setHoliday(todayHoliday ?? null)
-      })
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : 'Failed to load today'
-        setError(message)
-      })
-      .finally(() => setLoading(false))
+    if (isFaculty && user) {
+      Promise.all([
+        getFacultyTimetable(user.uid),
+        getSubstitutions({ date: dateKey, status: 'approved' }),
+        getUpcoming(),
+      ])
+        .then(([facultyTimetableData, substitutions, holidays]) => {
+          // facultyTimetableData is mapped day-wise
+          const dayData = (facultyTimetableData as any)[dayName]
+          const filledSlots = dayData?.slots ?? []
+          const withSubs = applyApprovedSubstitutions(
+            filledSlots,
+            substitutions,
+            today,
+          )
+          setSlots(collapseConsecutiveLabSlots(withSubs))
+          const todayHoliday = holidays.find(
+            (item) => item.isToday || item.date === dateKey,
+          )
+          setHoliday(todayHoliday ?? null)
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Failed to load today'
+          setError(message)
+        })
+        .finally(() => setLoading(false))
+    } else {
+      Promise.all([
+        getToday(),
+        getSubstitutions({ date: dateKey, status: 'approved' }),
+        getUpcoming(),
+      ])
+        .then(([days, substitutions, holidays]) => {
+          const todayDay = days[0]
+          const filledSlots = todayDay?.slots ?? []
+          const withSubs = applyApprovedSubstitutions(
+            filledSlots,
+            substitutions,
+            today,
+          )
+          setSlots(collapseConsecutiveLabSlots(withSubs))
+          const todayHoliday = holidays.find(
+            (item) => item.isToday || item.date === dateKey,
+          )
+          setHoliday(todayHoliday ?? null)
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Failed to load today'
+          setError(message)
+        })
+        .finally(() => setLoading(false))
+    }
   }
 
   useEffect(() => {
@@ -68,7 +107,7 @@ export const TodayPage = () => {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-ink-muted">Today</p>
-          <h1 className="text-2xl font-semibold text-ink">My Day</h1>
+          <h1 className="text-2xl font-semibold text-ink">{isAdmin ? 'Today' : 'My Day'}</h1>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -99,13 +138,21 @@ export const TodayPage = () => {
             <div className="text-lg font-semibold">{dayName}</div>
             <div className="text-sm text-white/80">{dateLabel}</div>
           </div>
-          <div className="rounded-full bg-white/20 px-3 py-1 text-xs font-semibold">
-            {lectureCount} slot{lectureCount === 1 ? '' : 's'}
-          </div>
+          {!isAdmin ? (
+            <div className="rounded-full bg-white/20 px-3 py-1 text-xs font-semibold">
+              {lectureCount} slot{lectureCount === 1 ? '' : 's'}
+            </div>
+          ) : null}
         </div>
       </div>
 
-      {loading ? (
+      {isAdmin ? (
+        <EmptyState
+          icon={<Shield className="h-6 w-6" />}
+          title="Admin View"
+          subtitle="Use the Timetable screen to view all class timetables with branch, semester, and division details."
+        />
+      ) : loading ? (
         <LoadingScreen label="Loading schedule..." />
       ) : error ? (
         <div className="rounded-2xl border border-error/30 bg-error/10 px-4 py-3 text-sm text-error">
@@ -139,7 +186,7 @@ export const TodayPage = () => {
             <button
               type="button"
               onClick={loadSchedule}
-              className="text-sm font-semibold text-brand"
+              className="text-sm font-semibold text-brand outline-none"
             >
               Refresh
             </button>

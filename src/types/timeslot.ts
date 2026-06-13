@@ -1,5 +1,8 @@
 export interface TimeSlotTemplate {
   id: number
+  branch_id?: number | null
+  semester?: number | null
+  division?: string | null
   label?: string | null
   startTimeHr: number
   startTimeMinutes: number

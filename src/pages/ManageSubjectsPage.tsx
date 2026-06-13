@@ -14,6 +14,7 @@ export const ManageSubjectsPage = () => {
   const [faculty, setFaculty] = useState<Faculty[]>([])
   const [search, setSearch] = useState('')
   const [semesterFilter, setSemesterFilter] = useState<number | null>(null)
+  const [branchFilter, setBranchFilter] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState<Subject | null>(null)
@@ -47,12 +48,14 @@ export const ManageSubjectsPage = () => {
         subject.subject_code.toLowerCase().includes(q)
       const matchesSemester =
         semesterFilter === null || subject.semester === semesterFilter
-      return matchesQuery && matchesSemester
+      const matchesBranch =
+        branchFilter === null || subject.branch_id === branchFilter
+      return matchesQuery && matchesSemester && matchesBranch
     })
-  }, [subjects, search, semesterFilter])
+  }, [subjects, search, semesterFilter, branchFilter])
 
   const handleSave = async (payload: Partial<Subject>, existing?: Subject | null) => {
-    if (existing) {
+    if (existing && existing.id !== 0) {
       await updateSubject(existing.id, payload)
     } else {
       await createSubject(payload)
@@ -97,8 +100,8 @@ export const ManageSubjectsPage = () => {
       </div>
 
       <div className="rounded-3xl border border-border bg-white px-5 py-4 shadow-soft">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex flex-1 items-center gap-3">
+        <div className="flex flex-col gap-3">
+          <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-brand-light text-brand">
               <Search className="h-4 w-4" />
             </div>
@@ -109,20 +112,50 @@ export const ManageSubjectsPage = () => {
               onChange={(event) => setSearch(event.target.value)}
             />
           </div>
-          <select
-            className="rounded-xl border border-border px-3 py-2 text-sm text-ink"
-            value={semesterFilter ?? ''}
-            onChange={(event) =>
-              setSemesterFilter(event.target.value ? Number(event.target.value) : null)
-            }
-          >
-            <option value="">All semesters</option>
-            {Array.from({ length: 8 }, (_, index) => index + 1).map((sem) => (
-              <option key={sem} value={sem}>
-                Sem {sem}
-              </option>
-            ))}
-          </select>
+          <div className="flex flex-wrap items-center gap-3 mt-2 border-t border-border pt-3">
+            <label className="grid flex-1 min-w-[140px] gap-1 text-xs font-semibold text-ink-muted">
+              Department / Branch
+              <select
+                className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none"
+                value={branchFilter ?? ''}
+                onChange={(e) => setBranchFilter(e.target.value ? Number(e.target.value) : null)}
+              >
+                <option value="">All Departments</option>
+                {Object.entries(branchMap).map(([id, label]) => (
+                  <option key={id} value={id}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="grid flex-1 min-w-[140px] gap-1 text-xs font-semibold text-ink-muted">
+              Semester
+              <select
+                className="rounded-xl border border-border px-3 py-2 text-sm text-ink bg-white outline-none"
+                value={semesterFilter ?? ''}
+                onChange={(event) =>
+                  setSemesterFilter(event.target.value ? Number(event.target.value) : null)
+                }
+              >
+                <option value="">All Semesters</option>
+                {Array.from({ length: 8 }, (_, index) => index + 1).map((sem) => (
+                  <option key={sem} value={sem}>
+                    Sem {sem}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => {
+                setBranchFilter(null)
+                setSemesterFilter(null)
+              }}
+              className="mt-auto h-9 rounded-xl border border-border px-4 text-xs font-semibold text-ink-muted"
+            >
+              Reset Filters
+            </button>
+          </div>
         </div>
       </div>
 
@@ -168,7 +201,7 @@ export const ManageSubjectsPage = () => {
                 <div className="flex items-center gap-2">
                   <button
                     type="button"
-                    className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-ink"
+                    className="rounded-xl border border-border px-3 py-1 text-xs font-semibold text-ink bg-white"
                     onClick={() => setEditing(subject)}
                   >
                     Edit
@@ -193,7 +226,7 @@ export const ManageSubjectsPage = () => {
         isOpen={Boolean(editing)}
         onClose={() => setEditing(null)}
         onSave={(payload) => {
-          handleSave(payload, editing?.id ? editing : null).finally(() => setEditing(null))
+          handleSave(payload, editing).finally(() => setEditing(null))
         }}
       />
 
@@ -243,7 +276,7 @@ const SubjectFormModal = ({
   faculty: Faculty[]
   isOpen: boolean
   onClose: () => void
-  onSave: (payload: Partial<Subject>) => void
+  onSave: (payload: Partial<Subject> & { batchProfessors?: Record<string, string> }) => void
 }) => {
   const [subjectName, setSubjectName] = useState(subject?.subject_name ?? '')
   const [subjectCode, setSubjectCode] = useState(subject?.subject_code ?? '')
@@ -285,6 +318,11 @@ const SubjectFormModal = ({
   const [experiments, setExperiments] = useState(subject?.experiments ?? '')
   const [theory, setTheory] = useState(subject?.theory ?? '')
 
+  // Batch-wise professor assignments for new lab subjects
+  const [batchAProf, setBatchAProf] = useState('')
+  const [batchBProf, setBatchBProf] = useState('')
+  const [batchCProf, setBatchCProf] = useState('')
+
   useEffect(() => {
     if (!subject) return
     setSubjectName(subject.subject_name ?? '')
@@ -306,6 +344,9 @@ const SubjectFormModal = ({
     setNumAssignments((subject.num_assignments ?? '').toString())
     setExperiments(subject.experiments ?? '')
     setTheory(subject.theory ?? '')
+    setBatchAProf('')
+    setBatchBProf('')
+    setBatchCProf('')
   }, [subject])
 
   if (!subject) return null
@@ -314,6 +355,14 @@ const SubjectFormModal = ({
 
   const handleSubmit = () => {
     if (!subjectName.trim() || !subjectCode.trim()) return
+
+    const batchProfs: Record<string, string> = {}
+    if (subject.id === 0 && isPractical) {
+      if (batchAProf) batchProfs['A'] = batchAProf
+      if (batchBProf) batchProfs['B'] = batchBProf
+      if (batchCProf) batchProfs['C'] = batchCProf
+    }
+
     onSave({
       subject_name: subjectName.trim(),
       subject_code: subjectCode.trim(),
@@ -334,6 +383,7 @@ const SubjectFormModal = ({
       num_assignments: toNumber(numAssignments),
       experiments: experiments.trim() || undefined,
       theory: theory.trim() || undefined,
+      batchProfessors: Object.keys(batchProfs).length ? batchProfs : undefined,
     })
   }
 
@@ -368,7 +418,7 @@ const SubjectFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Semester
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={semester}
             onChange={(event) => setSemester(Number(event.target.value))}
           >
@@ -382,7 +432,7 @@ const SubjectFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Branch
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={branchId}
             onChange={(event) => setBranchId(Number(event.target.value))}
           >
@@ -396,7 +446,7 @@ const SubjectFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Academic Year
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={acadYear}
             onChange={(event) => setAcadYear(event.target.value)}
           >
@@ -424,7 +474,7 @@ const SubjectFormModal = ({
         <label className="grid gap-1 text-sm text-ink">
           Assigned Professor
           <select
-            className="rounded-xl border border-border px-3 py-2"
+            className="rounded-xl border border-border px-3 py-2 bg-white outline-none"
             value={professorAssign}
             onChange={(event) => setProfessorAssign(event.target.value)}
           >
@@ -446,6 +496,38 @@ const SubjectFormModal = ({
           />
           Lab / Practical Subject
         </label>
+
+        {/* Batch-wise teacher assignment (Only visible when adding a new practical subject) */}
+        {subject.id === 0 && isPractical ? (
+          <div className="rounded-xl border border-brand/20 bg-brand-light/20 p-3 grid gap-3">
+            <div className="text-xs font-semibold text-brand">Batch-wise Teacher Assignment</div>
+            <div className="text-[11px] text-ink-muted -mt-1">
+              Lab subjects get 3 batch variants (A, B, C). Assign a teacher for each batch.
+            </div>
+            {['A', 'B', 'C'].map((batch) => {
+              const currentVal = batch === 'A' ? batchAProf : batch === 'B' ? batchBProf : batchCProf
+              const setVal = batch === 'A' ? setBatchAProf : batch === 'B' ? setBatchBProf : setBatchCProf
+              return (
+                <label key={batch} className="grid grid-cols-3 items-center gap-2 text-xs">
+                  <span className="font-semibold text-ink">Batch {batch}</span>
+                  <select
+                    className="col-span-2 rounded-lg border border-border px-2 py-1.5 bg-white outline-none"
+                    value={currentVal}
+                    onChange={(e) => setVal(e.target.value)}
+                  >
+                    <option value="">-- Same as default --</option>
+                    {faculty.map((member) => (
+                      <option key={member.faculty_id} value={member.faculty_id}>
+                        {member.name || `Faculty ${member.faculty_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )
+            })}
+          </div>
+        ) : null}
+
         <label className="inline-flex items-center gap-2 text-sm text-ink">
           <input
             type="checkbox"
@@ -510,7 +592,7 @@ const SubjectFormModal = ({
 }
 
 const Section = ({ label }: { label: string }) => (
-  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-muted">
+  <div className="text-xs font-semibold uppercase tracking-[0.2em] text-ink-muted mt-2 border-t border-border pt-2">
     {label}
   </div>
 )
@@ -532,14 +614,14 @@ const Field = ({
     {label}
     {multiline ? (
       <textarea
-        className="rounded-xl border border-border px-3 py-2"
+        className="rounded-xl border border-border px-3 py-2 outline-none"
         rows={2}
         value={value}
         onChange={(event) => onChange(event.target.value)}
       />
     ) : (
       <input
-        className="rounded-xl border border-border px-3 py-2"
+        className="rounded-xl border border-border px-3 py-2 outline-none"
         type={type}
         value={value}
         onChange={(event) => onChange(event.target.value)}

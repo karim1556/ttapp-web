@@ -1,7 +1,11 @@
-import { apiRequest } from './client'
+import { apiRequest, withQuery } from './client'
 import type { TimeSlotTemplate } from '../types/timeslot'
 
-export const getAll = () => apiRequest<TimeSlotTemplate[]>('/timeslots')
+export const getAll = (query?: {
+  branchId?: number | null
+  semester?: number | null
+  division?: string | null
+}) => apiRequest<TimeSlotTemplate[]>(withQuery('/timeslots', query))
 
 export const createTimeSlot = (payload: Partial<TimeSlotTemplate>) =>
   apiRequest<TimeSlotTemplate>('/timeslots', {

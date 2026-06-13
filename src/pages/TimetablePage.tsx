@@ -10,7 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import { getAll as getFaculty } from '../api/faculty'
 import { getAll as getSubjects } from '../api/subjects'
 import { createSubstitution, preview } from '../api/substitutions'
-import { getWeekly, updateSlot } from '../api/timetable'
+import { getWeekly, updateSlot, getFacultyTimetable } from '../api/timetable'
 import { useAuth } from '../auth/AuthProvider'
 import { EmptyState } from '../components/EmptyState'
 import { LectureDetailModal } from '../components/LectureDetailModal'
@@ -19,7 +19,7 @@ import { Modal } from '../components/Modal'
 import { TimetableSlotCard } from '../components/TimetableSlotCard'
 import type { Faculty } from '../types/faculty'
 import type { Subject } from '../types/subject'
-import type { TimetableDay, TimetableLecture, TimetableSlot } from '../types/timetable'
+import type { DayOfWeek, TimetableDay, TimetableLecture, TimetableSlot } from '../types/timetable'
 import { UserRole } from '../types/auth'
 import { formatDateInput } from '../utils/date'
 import { downloadCsv } from '../utils/csv'
@@ -107,17 +107,43 @@ export const TimetablePage = () => {
   const loadTimetable = () => {
     setLoading(true)
     setError(null)
-    getWeekly({
-      branchId: selectedBranch ?? undefined,
-      sem: selectedSemester ? String(selectedSemester) : undefined,
-      division: selectedDivision ?? undefined,
-    })
-      .then((data) => setWeekly(data))
-      .catch((err) => {
-        const message = err instanceof Error ? err.message : 'Failed to load timetable'
-        setError(message)
+
+    const hasFilters = selectedBranch !== null || selectedSemester !== null || selectedDivision !== null
+
+    if (user?.user_type === UserRole.Faculty && !hasFilters) {
+      getFacultyTimetable(user.uid)
+        .then((data: any) => {
+          const daysArray = Object.entries(data).map(([dayName, dayData]: [string, any]) => ({
+            id: dayData.timetable.id,
+            dateOfWeek: dayName as DayOfWeek,
+            slots: dayData.slots,
+            branch_id: dayData.timetable.branch_id,
+            sem: dayData.timetable.sem,
+            division: dayData.timetable.division,
+            academic_id: dayData.timetable.academic_id,
+            fromDate: dayData.timetable.fromDate,
+            toDate: dayData.timetable.toDate,
+          }))
+          setWeekly(daysArray)
+        })
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Failed to load timetable'
+          setError(message)
+        })
+        .finally(() => setLoading(false))
+    } else {
+      getWeekly({
+        branchId: selectedBranch ?? undefined,
+        sem: selectedSemester ? String(selectedSemester) : undefined,
+        division: selectedDivision ?? undefined,
       })
-      .finally(() => setLoading(false))
+        .then((data) => setWeekly(data))
+        .catch((err) => {
+          const message = err instanceof Error ? err.message : 'Failed to load timetable'
+          setError(message)
+        })
+        .finally(() => setLoading(false))
+    }
   }
 
   useEffect(() => {
@@ -284,7 +310,14 @@ export const TimetablePage = () => {
       <div className="flex items-center justify-between">
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-ink-muted">Timetable</p>
-          <h1 className="text-2xl font-semibold text-ink">My Timetable</h1>
+          <h1 className="text-2xl font-semibold text-ink">
+            {user?.user_type === UserRole.Faculty &&
+            selectedBranch === null &&
+            selectedSemester === null &&
+            selectedDivision === null
+              ? 'My Timetable'
+              : 'Complete Timetable'}
+          </h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -354,9 +387,18 @@ export const TimetablePage = () => {
           <div>
             <div className="text-lg font-semibold text-ink">{selectedDayName}</div>
             <div className="text-sm text-ink-muted">
-              {selectedBranch ? (branches as Record<number, string>)[selectedBranch] : 'All Branches'} ·{' '}
-              {selectedSemester ? `Sem ${selectedSemester}` : 'All Semesters'} ·{' '}
-              {selectedDivision ? `Div ${selectedDivision}` : 'All Divisions'}
+              {user?.user_type === UserRole.Faculty &&
+              selectedBranch === null &&
+              selectedSemester === null &&
+              selectedDivision === null ? (
+                'Your weekly teaching schedule'
+              ) : (
+                <>
+                  {selectedBranch ? (branches as Record<number, string>)[selectedBranch] : 'All Branches'} ·{' '}
+                  {selectedSemester ? `Sem ${selectedSemester}` : 'All Semesters'} ·{' '}
+                  {selectedDivision ? `Div ${selectedDivision}` : 'All Divisions'}
+                </>
+              )}
             </div>
           </div>
           <div className="rounded-full bg-brand-light px-3 py-1 text-xs font-semibold text-brand">
