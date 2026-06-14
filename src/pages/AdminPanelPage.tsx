@@ -476,6 +476,12 @@ export const AdminPanelPage = () => {
               to="/timetable"
             />
             <AdminTile
+              title="Manual Edit"
+              subtitle="Switch & adjust slots"
+              icon={<Settings className="h-5 w-5" />}
+              to="/admin/manual-edit"
+            />
+            <AdminTile
               title="Substitutions"
               subtitle="Day-only replacements"
               icon={<CalendarCheck className="h-5 w-5" />}
